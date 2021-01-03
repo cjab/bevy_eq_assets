@@ -1,0 +1,28 @@
+[package]
+name = "bevy_eq_assets"
+version = "0.1.0"
+authors = ["Chad Jablonski <chad@jablonski.xyz>"]
+edition = "2018"
+repository = "https://github.com/cjab/bevy_eq_assets"
+readme = "README.md"
+keywords = ["everquest", "bevy", "wld", "loader", "assets"]
+categories = ["game-development", "graphics", "parsing", "rendering::data-formats"]
+license = "MIT"
+
+[dependencies]
+eq_archive = { git = "https://github.com/cjab/eq_archive" }
+eq_wld = "0.1.1"
+log = "0.4.11"
+env_logger = "0.7"
+bevy_ecs = "0.4.0"
+bevy_app = "0.4.0"
+bevy_asset = "0.4.0"
+bevy_reflect = "0.4.0"
+bevy_render = "0.4.0"
+bevy_utils = "0.4.0"
+bevy_pbr = "0.4.0"
+bevy_scene = "0.4.0"
+bevy_transform = "0.4.0"
+bevy_math = "0.4.0"
+anyhow = "1.0"
+image = "0.23.2"
