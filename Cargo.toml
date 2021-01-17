@@ -11,7 +11,7 @@ license = "MIT"
 
 [dependencies]
 eq_archive = { git = "https://github.com/cjab/eq_archive" }
-eq_wld = "0.1.1"
+eq_wld = "0.2.1"
 log = "0.4.11"
 env_logger = "0.7"
 bevy_ecs = "0.4.0"

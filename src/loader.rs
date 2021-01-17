@@ -1,28 +1,26 @@
+use std::collections::HashMap;
+
 use anyhow::Result;
-use bevy_asset::{AssetIoError, AssetLoader, AssetPath, Handle, LoadContext, LoadedAsset};
+use bevy_asset::{AssetLoader, AssetPath, Handle, LoadContext, LoadedAsset};
 use bevy_ecs::{bevy_utils::BoxedFuture, World, WorldBuilderSource};
-use bevy_math::Mat4;
+use bevy_math::Vec3;
 use bevy_pbr::prelude::{PbrBundle, StandardMaterial};
 use bevy_render::{
-    camera::{
-        Camera, CameraProjection, OrthographicProjection, PerspectiveProjection, VisibleEntities,
-    },
     mesh::{Indices, Mesh, VertexAttributeValues},
     pipeline::PrimitiveTopology,
-    prelude::{Color, Texture},
-    render_graph::base,
-    texture::{
-        AddressMode, Extent3d, FilterMode, SamplerDescriptor, TextureDimension, TextureFormat,
-    },
+    prelude::Texture,
+    texture::{AddressMode, Extent3d, SamplerDescriptor, TextureDimension, TextureFormat},
 };
 use bevy_scene::Scene;
 use bevy_transform::{
-    hierarchy::{BuildWorldChildren, WorldChildBuilder},
+    hierarchy::BuildWorldChildren,
     prelude::{GlobalTransform, Transform},
 };
 
 use image::ImageFormat;
-use log::{error, info};
+use log::{debug, error, info};
+
+use super::{EqArchive, EqMesh, EqPrimitive, EqWld};
 
 #[derive(Default)]
 pub struct EqAssetsLoader;
@@ -42,16 +40,20 @@ impl AssetLoader for EqAssetsLoader {
 }
 
 fn load_eq_archive(bytes: &[u8], load_context: &mut LoadContext) {
+    let mut named_sources = HashMap::new();
+    let mut named_wlds = HashMap::new();
     for (name, asset) in eq_archive::load(bytes)
         .expect("Failed to load archive")
         .files()
     {
         match name.splitn(2, ".").last() {
             Some("bmp") => {
-                load_bmp(&name[..], &asset[..], load_context);
+                let source = load_bmp(&name[..], &asset[..], load_context);
+                named_sources.insert(name, source);
             }
             Some("wld") => {
-                load_wld(&name[..], &asset[..], load_context);
+                let wld = load_wld(&name[..], &asset[..], load_context);
+                named_wlds.insert(name, wld);
             }
             Some(_) => {
                 error!("Unknown file type, ignoring: {}", name);
@@ -61,9 +63,14 @@ fn load_eq_archive(bytes: &[u8], load_context: &mut LoadContext) {
             }
         }
     }
+
+    load_context.set_default_asset(LoadedAsset::new(EqArchive {
+        named_sources,
+        named_wlds,
+    }));
 }
 
-fn load_bmp(name: &str, bytes: &[u8], load_context: &mut LoadContext) {
+fn load_bmp(name: &str, bytes: &[u8], load_context: &mut LoadContext) -> Handle<Texture> {
     let image = image::load_from_memory_with_format(bytes, ImageFormat::Bmp)
         .expect("Failed to load bitmap")
         .into_rgba8();
@@ -87,73 +94,155 @@ fn load_bmp(name: &str, bytes: &[u8], load_context: &mut LoadContext) {
             ..Texture::default()
         }),
     );
-    println!("Loaded {}", label);
+    load_context.get_handle(AssetPath::new_ref(load_context.path(), Some(&label)))
 }
 
-fn load_wld(name: &str, bytes: &[u8], load_context: &mut LoadContext) {
-    info!("Loading wld file: {}", name);
-    let wld = eq_wld::load(bytes).expect(&format!("Failed to load wld: {}", name));
-
-    // Load meshes
-    for mesh in wld.meshes() {
-        let label = mesh_label(mesh.name().unwrap_or(""));
-        let mut bevy_mesh = Mesh::new(PrimitiveTopology::TriangleList);
-
-        // Set vertex positions
-        bevy_mesh.set_attribute(
-            Mesh::ATTRIBUTE_POSITION,
-            VertexAttributeValues::Float3(mesh.positions()),
-        );
-
-        // Set normals
-        bevy_mesh.set_attribute(
-            Mesh::ATTRIBUTE_NORMAL,
-            VertexAttributeValues::Float3(mesh.normals()),
-        );
-
-        let texture_coordinates = mesh.texture_coordinates();
-        if texture_coordinates.len() > 0 {
-            // Set texture coordinates
-            bevy_mesh.set_attribute(
-                Mesh::ATTRIBUTE_UV_0,
-                VertexAttributeValues::Float2(texture_coordinates),
-            );
-        }
-
-        // Set vertex indices
-        bevy_mesh.set_indices(Some(Indices::U32(mesh.indices())));
-
-        println!("Loaded {}", label);
-        load_context.set_labeled_asset(&label, LoadedAsset::new(bevy_mesh));
-    }
+fn load_wld(wld_name: &str, bytes: &[u8], load_context: &mut LoadContext) -> Handle<EqWld> {
+    info!("Loading wld file: {}", wld_name);
+    let wld = eq_wld::load(bytes).expect(&format!("Failed to load wld: {}", wld_name));
 
     // Load materials
+    let mut materials = vec![];
+    let mut named_materials: HashMap<String, Handle<_>> = HashMap::new();
     for material in wld.materials() {
-        let label = material_label(material.name().unwrap_or(""));
+        let label = material_label(wld_name, material.name().unwrap_or(""));
 
         let texture = match material.base_color_texture() {
             Some(t) => t,
             None => {
-                println!("{} has no color texture!", label);
+                debug!("{} has no color texture!", label);
                 continue;
             }
         };
         let texture_name = match texture.source() {
             Some(t) => t,
             None => {
-                println!("{} has no texture source!", label);
+                debug!("{} has no texture source!", label);
                 continue;
             }
         };
 
-        load_material(&label, texture_name, load_context);
+        let material_handle = load_material(&label, texture_name, load_context);
+        if let Some(name) = material.name() {
+            materials.push(material_handle.clone());
+            named_materials.insert(name.to_string(), material_handle.clone());
+        }
     }
+
+    // Load meshes
+    let mut meshes = vec![];
+    let mut named_meshes = HashMap::new();
+    let mut world = World::default();
+    let world_builder = &mut world.build();
+
+    world_builder
+        .spawn((Transform::default(), GlobalTransform::default()))
+        .with_children(|parent| {
+            for mesh in wld.meshes() {
+                let mut primitives = vec![];
+                let (x, y, z) = mesh.center();
+                parent
+                    .spawn((
+                        Transform::from_translation(Vec3::new(x, y, z)),
+                        GlobalTransform::default(),
+                    ))
+                    .with_children(|parent| {
+                        for primitive in mesh.primitives() {
+                            let mut bevy_mesh = Mesh::new(PrimitiveTopology::TriangleList);
+
+                            // Set vertex positions
+                            bevy_mesh.set_attribute(
+                                Mesh::ATTRIBUTE_POSITION,
+                                VertexAttributeValues::Float3(primitive.positions()),
+                            );
+
+                            // Set normals
+                            bevy_mesh.set_attribute(
+                                Mesh::ATTRIBUTE_NORMAL,
+                                VertexAttributeValues::Float3(primitive.normals()),
+                            );
+
+                            // Set texture coordinates
+                            let texture_coordinates = primitive.texture_coordinates();
+                            if texture_coordinates.len() > 0 {
+                                bevy_mesh.set_attribute(
+                                    Mesh::ATTRIBUTE_UV_0,
+                                    VertexAttributeValues::Float2(texture_coordinates),
+                                );
+                            }
+
+                            // Set vertex indices
+                            bevy_mesh.set_indices(Some(Indices::U32(primitive.indices())));
+
+                            let label = primitive_label(
+                                wld_name,
+                                mesh.name().unwrap_or(""),
+                                primitive.index(),
+                            );
+                            load_context.set_labeled_asset(&label, LoadedAsset::new(bevy_mesh));
+                            let mesh_handle: Handle<Mesh> = load_context
+                                .get_handle(AssetPath::new_ref(load_context.path(), Some(&label)));
+                            let material_handle = match named_materials
+                                .get(primitive.material().name().unwrap())
+                                .cloned()
+                            {
+                                Some(material) => material,
+                                None => {
+                                    debug!("Could not find {:?}", primitive.material().name());
+                                    continue;
+                                }
+                            };
+
+                            parent.spawn(PbrBundle {
+                                mesh: mesh_handle.clone(),
+                                material: material_handle.clone(),
+                                ..Default::default()
+                            });
+
+                            primitives.push(EqPrimitive {
+                                mesh: mesh_handle.clone(),
+                                material: material_handle.clone(),
+                            })
+                        }
+                    });
+
+                let label = mesh_label(wld_name, mesh.name().unwrap_or(""));
+                load_context.set_labeled_asset(&label, LoadedAsset::new(EqMesh { primitives }));
+                let eq_mesh_handle: Handle<EqMesh> =
+                    load_context.get_handle(AssetPath::new_ref(load_context.path(), Some(&label)));
+                named_meshes.insert(label, eq_mesh_handle.clone());
+                meshes.push(eq_mesh_handle.clone());
+            }
+        });
+
+    let label = wld_label(wld_name);
+    load_context.set_labeled_asset(
+        &format!("{}/Map", label),
+        LoadedAsset::new(Scene::new(world)),
+    );
+    load_context.set_labeled_asset(
+        &label,
+        LoadedAsset::new(EqWld {
+            meshes,
+            named_meshes,
+            materials,
+            named_materials,
+        }),
+    );
+    info!("Loaded: {}", label);
+    load_context.get_handle(AssetPath::new_ref(load_context.path(), Some(&label)))
 }
 
-fn load_material(label: &str, texture_name: String, load_context: &mut LoadContext) {
+fn load_material(
+    label: &str,
+    texture_name: String,
+    load_context: &mut LoadContext,
+) -> Handle<StandardMaterial> {
     let texture_label = texture_label(&texture_name);
-    let path = AssetPath::new_ref(load_context.path(), Some(&texture_label));
-    let texture_handle = load_context.get_handle(path);
+    let texture_handle = load_context.get_handle(AssetPath::new_ref(
+        load_context.path(),
+        Some(&texture_label),
+    ));
 
     load_context.set_labeled_asset(
         &label,
@@ -163,21 +252,29 @@ fn load_material(label: &str, texture_name: String, load_context: &mut LoadConte
             ..Default::default()
         }),
     );
-    println!("Loaded {}", label);
+    load_context.get_handle(AssetPath::new_ref(load_context.path(), Some(&label)))
 }
 
-fn material_label(name: &str) -> String {
-    format!("Material[{}]", name)
+fn wld_label(wld_name: &str) -> String {
+    format!("Wld[{}]", wld_name)
+}
+
+fn material_label(wld_name: &str, name: &str) -> String {
+    format!("{}/Material[{}]", wld_label(wld_name), name)
 }
 
 fn texture_label(name: &str) -> String {
     format!("Texture[{}]", name)
 }
 
-fn mesh_label(name: &str) -> String {
-    format!("Mesh[{}]", name)
+fn mesh_label(wld_name: &str, name: &str) -> String {
+    format!("{}/Mesh[{}]", wld_label(wld_name), name)
 }
 
-fn primitive_label(mesh_name: &str, primitive_index: u16) -> String {
-    format!("Mesh[{}]/Primitive[{}]", mesh_name, primitive_index)
+fn primitive_label(wld_name: &str, mesh_name: &str, primitive_index: usize) -> String {
+    format!(
+        "{}/Primitive[{}]",
+        mesh_label(wld_name, mesh_name),
+        primitive_index
+    )
 }

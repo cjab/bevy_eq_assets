@@ -22,8 +22,7 @@ fn main() {
 }
 
 fn setup(commands: &mut Commands, asset_server: Res<AssetServer>) {
-    let material_handle = asset_server.load("gfaydark.s3d#Material[SGRASS_MDF]");
-    let mdl_handle = asset_server.load("gfaydark.s3d#Mesh[R43_DMSPRITEDEF]");
+    let map = asset_server.load("gfaydark.s3d#Wld[gfaydark.wld]/Map");
 
     commands
         .spawn(Camera3dBundle {
@@ -46,15 +45,9 @@ fn setup(commands: &mut Commands, asset_server: Res<AssetServer>) {
             ..FlyCamera::default()
         })
         .spawn(LightBundle::default())
-        .spawn(PbrBundle {
-            mesh: mdl_handle.clone(),
-            material: material_handle,
-            transform: Transform {
-                translation: Vec3::new(0.0, -50.0, 0.0),
-                rotation: Quat::from_rotation_y(std::f32::consts::PI / 2.0),
-                ..Default::default()
-            },
-            ..Default::default()
+        .spawn((Transform::default(), GlobalTransform::default()))
+        .with_children(|parent| {
+            parent.spawn_scene(scene.clone());
         });
 }
 ```

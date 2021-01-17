@@ -665,9 +665,9 @@ dependencies = [
 
 [[package]]
 name = "eq_wld"
-version = "0.1.1"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3c8605bbaa10ded2475b5c7acf9bc55df5016209fc4b085d1ae641af0611684e"
+checksum = "e452dd44949502a714a8a803af009666f2e17e0a15e72dfb8935aef6a9b0d5dd"
 dependencies = [
  "env_logger",
  "log",

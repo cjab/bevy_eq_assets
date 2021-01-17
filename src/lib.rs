@@ -17,8 +17,7 @@
 //! }
 //!
 //! fn setup(commands: &mut Commands, asset_server: Res<AssetServer>) {
-//!     let material_handle = asset_server.load("gfaydark.s3d#Material[SGRASS_MDF]");
-//!     let mdl_handle = asset_server.load("gfaydark.s3d#Mesh[R43_DMSPRITEDEF]");
+//!     let map = asset_server.load("gfaydark.s3d#Wld[gfaydark.wld]/Map");
 //!
 //!     commands
 //!         .spawn(Camera3dBundle {
@@ -41,15 +40,9 @@
 //!             ..FlyCamera::default()
 //!         })
 //!         .spawn(LightBundle::default())
-//!         .spawn(PbrBundle {
-//!             mesh: mdl_handle.clone(),
-//!             material: material_handle,
-//!             transform: Transform {
-//!                 translation: Vec3::new(0.0, -50.0, 0.0),
-//!                 rotation: Quat::from_rotation_y(std::f32::consts::PI / 2.0),
-//!                 ..Default::default()
-//!             },
-//!             ..Default::default()
+//!         .spawn((Transform::default(), GlobalTransform::default()))
+//!         .with_children(|parent| {
+//!             parent.spawn_scene(scene.clone());
 //!         });
 //! }
 //! ```
@@ -62,8 +55,7 @@ use bevy_app::prelude::*;
 use bevy_asset::{AddAsset, Handle};
 use bevy_pbr::prelude::StandardMaterial;
 use bevy_reflect::TypeUuid;
-use bevy_render::mesh::Mesh;
-use bevy_scene::Scene;
+use bevy_render::{mesh::Mesh, prelude::Texture};
 
 pub use loader::*;
 
@@ -75,6 +67,7 @@ impl Plugin for EqAssetsPlugin {
     fn build(&self, app: &mut AppBuilder) {
         app.init_asset_loader::<EqAssetsLoader>()
             .add_asset::<EqArchive>()
+            .add_asset::<EqWld>()
             .add_asset::<EqNode>()
             .add_asset::<EqPrimitive>()
             .add_asset::<EqMesh>();
@@ -82,17 +75,19 @@ impl Plugin for EqAssetsPlugin {
 }
 
 #[derive(Debug, TypeUuid)]
-#[uuid = "bc08df99-f504-4b44-bb66-8633247c6cb9"]
+#[uuid = "716e12d8-7f53-421c-baee-f4da9053c52b"]
 pub struct EqArchive {
-    pub scenes: Vec<Handle<Scene>>,
-    pub named_scenes: HashMap<String, Handle<Scene>>,
+    pub named_sources: HashMap<String, Handle<Texture>>,
+    pub named_wlds: HashMap<String, Handle<EqWld>>,
+}
+
+#[derive(Debug, TypeUuid)]
+#[uuid = "899f49a7-e6e6-4661-897f-6c0f8ba07284"]
+pub struct EqWld {
     pub meshes: Vec<Handle<EqMesh>>,
     pub named_meshes: HashMap<String, Handle<EqMesh>>,
     pub materials: Vec<Handle<StandardMaterial>>,
     pub named_materials: HashMap<String, Handle<StandardMaterial>>,
-    pub nodes: Vec<Handle<EqNode>>,
-    pub named_nodes: HashMap<String, Handle<EqNode>>,
-    pub default_scene: Option<Handle<Scene>>,
 }
 
 #[derive(Debug, Clone, TypeUuid)]
@@ -113,5 +108,5 @@ pub struct EqMesh {
 #[uuid = "f44eea06-7f17-4511-a294-959edcbd27b6"]
 pub struct EqPrimitive {
     pub mesh: Handle<Mesh>,
-    pub material: Option<Handle<StandardMaterial>>,
+    pub material: Handle<StandardMaterial>,
 }
