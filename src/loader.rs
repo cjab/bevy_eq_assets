@@ -1,22 +1,24 @@
 use std::collections::HashMap;
 
 use anyhow::Result;
-use bevy_asset::{AssetLoader, AssetPath, Handle, LoadContext, LoadedAsset};
-use bevy_ecs::{bevy_utils::BoxedFuture, World, WorldBuilderSource};
+use bevy_asset::{AssetLoader, AssetPath, BoxedFuture, Handle, LoadContext, LoadedAsset};
+use bevy_ecs::prelude::World;
+use bevy_hierarchy::BuildWorldChildren;
 use bevy_math::Vec3;
 use bevy_pbr::prelude::{PbrBundle, StandardMaterial};
 use bevy_render::{
     mesh::{Indices, Mesh, VertexAttributeValues},
-    pipeline::PrimitiveTopology,
-    prelude::Texture,
-    texture::{AddressMode, Extent3d, SamplerDescriptor, TextureDimension, TextureFormat},
+    prelude::{Image, SpatialBundle},
+    render_resource::{
+        AddressMode, Extent3d, PrimitiveTopology, SamplerDescriptor, TextureDescriptor,
+        TextureDimension, TextureFormat, TextureUsages,
+    },
+    texture::ImageSampler,
 };
 use bevy_scene::Scene;
-use bevy_transform::{
-    hierarchy::BuildWorldChildren,
-    prelude::{GlobalTransform, Transform},
-};
+use bevy_transform::prelude::Transform;
 
+use bevy_utils::default;
 use image::ImageFormat;
 use log::{debug, error, info};
 
@@ -70,28 +72,38 @@ fn load_eq_archive(bytes: &[u8], load_context: &mut LoadContext) {
     }));
 }
 
-fn load_bmp(name: &str, bytes: &[u8], load_context: &mut LoadContext) -> Handle<Texture> {
+fn load_bmp(name: &str, bytes: &[u8], load_context: &mut LoadContext) -> Handle<Image> {
     let image = image::load_from_memory_with_format(bytes, ImageFormat::Bmp)
         .expect("Failed to load bitmap")
         .into_rgba8();
     let format = TextureFormat::Rgba8UnormSrgb;
-    let size = Extent3d::new(image.width(), image.height(), 1);
+    let size = Extent3d {
+        width: image.width(),
+        height: image.height(),
+        depth_or_array_layers: 1,
+    };
     let data = image.into_raw();
     let label = texture_label(name);
 
     load_context.set_labeled_asset(
         &label,
-        LoadedAsset::new(Texture {
+        LoadedAsset::new(Image {
             data,
-            size,
-            format,
-            dimension: TextureDimension::D2,
-            sampler: SamplerDescriptor {
+            texture_descriptor: TextureDescriptor {
+                size,
+                format,
+                dimension: TextureDimension::D2,
+                label: None,
+                mip_level_count: 1,
+                sample_count: 1,
+                usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
+            },
+            sampler_descriptor: ImageSampler::Descriptor(SamplerDescriptor {
                 address_mode_u: AddressMode::MirrorRepeat,
                 address_mode_v: AddressMode::MirrorRepeat,
-                ..SamplerDescriptor::default()
-            },
-            ..Texture::default()
+                ..Default::default()
+            }),
+            ..Default::default()
         }),
     );
     load_context.get_handle(AssetPath::new_ref(load_context.path(), Some(&label)))
@@ -133,41 +145,40 @@ fn load_wld(wld_name: &str, bytes: &[u8], load_context: &mut LoadContext) -> Han
     let mut meshes = vec![];
     let mut named_meshes = HashMap::new();
     let mut world = World::default();
-    let world_builder = &mut world.build();
 
-    world_builder
-        .spawn((Transform::default(), GlobalTransform::default()))
+    world
+        .spawn(SpatialBundle::default())
         .with_children(|parent| {
             for mesh in wld.meshes() {
                 let mut primitives = vec![];
                 let (x, y, z) = mesh.center();
                 parent
-                    .spawn((
-                        Transform::from_translation(Vec3::new(x, y, z)),
-                        GlobalTransform::default(),
-                    ))
+                    .spawn(SpatialBundle {
+                        transform: Transform::from_translation(Vec3::new(x, y, z)),
+                        ..default()
+                    })
                     .with_children(|parent| {
                         for primitive in mesh.primitives() {
                             let mut bevy_mesh = Mesh::new(PrimitiveTopology::TriangleList);
 
                             // Set vertex positions
-                            bevy_mesh.set_attribute(
+                            bevy_mesh.insert_attribute(
                                 Mesh::ATTRIBUTE_POSITION,
-                                VertexAttributeValues::Float3(primitive.positions()),
+                                VertexAttributeValues::Float32x3(primitive.positions()),
                             );
 
                             // Set normals
-                            bevy_mesh.set_attribute(
+                            bevy_mesh.insert_attribute(
                                 Mesh::ATTRIBUTE_NORMAL,
-                                VertexAttributeValues::Float3(primitive.normals()),
+                                VertexAttributeValues::Float32x3(primitive.normals()),
                             );
 
                             // Set texture coordinates
                             let texture_coordinates = primitive.texture_coordinates();
                             if texture_coordinates.len() > 0 {
-                                bevy_mesh.set_attribute(
+                                bevy_mesh.insert_attribute(
                                     Mesh::ATTRIBUTE_UV_0,
-                                    VertexAttributeValues::Float2(texture_coordinates),
+                                    VertexAttributeValues::Float32x2(texture_coordinates),
                                 );
                             }
 
@@ -247,8 +258,8 @@ fn load_material(
     load_context.set_labeled_asset(
         &label,
         LoadedAsset::new(StandardMaterial {
-            albedo_texture: Some(texture_handle),
-            shaded: false,
+            base_color_texture: Some(texture_handle),
+            unlit: true,
             ..Default::default()
         }),
     );

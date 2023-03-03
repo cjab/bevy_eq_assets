@@ -13,15 +13,15 @@ use bevy_fly_camera::{FlyCamera, FlyCameraPlugin};
 use bevy_eq_assets::EqAssetsPlugin;
 
 fn main() {
-    App::build()
+    App::new()
         .add_plugins(DefaultPlugins)
         .add_plugin(EqAssetsPlugin)
-        .add_startup_system(setup.system())
+        .add_startup_system(setup)
         .add_plugin(FlyCameraPlugin)
         .run();
 }
 
-fn setup(commands: &mut Commands, asset_server: Res<AssetServer>) {
+fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     let map = asset_server.load("gfaydark.s3d#Wld[gfaydark.wld]/Map");
 
     commands
@@ -30,11 +30,11 @@ fn setup(commands: &mut Commands, asset_server: Res<AssetServer>) {
                 translation: Vec3::new(0.0, 0.0, 10.0),
                 ..Transform::default()
             }
-            .looking_at(Vec3::default(), Vec3::unit_y()),
+            .looking_at(Vec3::default(), Vec3::Y),
             ..Default::default()
         })
-        .with(FlyCamera {
-            speed: 5.0,
+        .insert(FlyCamera {
+            accel: 5.0,
             max_speed: 5.0,
             key_forward: KeyCode::E,
             key_backward: KeyCode::D,
@@ -43,11 +43,16 @@ fn setup(commands: &mut Commands, asset_server: Res<AssetServer>) {
             key_up: KeyCode::A,
             key_down: KeyCode::Z,
             ..FlyCamera::default()
-        })
-        .spawn(LightBundle::default())
-        .spawn((Transform::default(), GlobalTransform::default()))
+        });
+    commands
+        .spawn(PointLightBundle::default());
+    commands
+        .spawn(SpatialBundle::default())
         .with_children(|parent| {
-            parent.spawn_scene(scene.clone());
+            parent.spawn(SceneBundle {
+                scene: map,
+                ..default()
+            });
         });
 }
 ```

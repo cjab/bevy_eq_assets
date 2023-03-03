@@ -8,15 +8,15 @@
 //! use bevy_eq_assets::EqAssetsPlugin;
 //!
 //! fn main() {
-//!     App::build()
+//!     App::new()
 //!         .add_plugins(DefaultPlugins)
 //!         .add_plugin(EqAssetsPlugin)
-//!         .add_startup_system(setup.system())
+//!         .add_startup_system(setup)
 //!         .add_plugin(FlyCameraPlugin)
 //!         .run();
 //! }
 //!
-//! fn setup(commands: &mut Commands, asset_server: Res<AssetServer>) {
+//! fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
 //!     let map = asset_server.load("gfaydark.s3d#Wld[gfaydark.wld]/Map");
 //!
 //!     commands
@@ -25,11 +25,11 @@
 //!                 translation: Vec3::new(0.0, 0.0, 10.0),
 //!                 ..Transform::default()
 //!             }
-//!             .looking_at(Vec3::default(), Vec3::unit_y()),
+//!             .looking_at(Vec3::default(), Vec3::Y),
 //!             ..Default::default()
 //!         })
-//!         .with(FlyCamera {
-//!             speed: 5.0,
+//!         .insert(FlyCamera {
+//!             accel: 5.0,
 //!             max_speed: 5.0,
 //!             key_forward: KeyCode::E,
 //!             key_backward: KeyCode::D,
@@ -38,11 +38,16 @@
 //!             key_up: KeyCode::A,
 //!             key_down: KeyCode::Z,
 //!             ..FlyCamera::default()
-//!         })
-//!         .spawn(LightBundle::default())
-//!         .spawn((Transform::default(), GlobalTransform::default()))
+//!         });
+//!     commands
+//!         .spawn(PointLightBundle::default());
+//!     commands
+//!         .spawn(SpatialBundle::default())
 //!         .with_children(|parent| {
-//!             parent.spawn_scene(scene.clone());
+//!             parent.spawn(SceneBundle {
+//!                 scene: map,
+//!                 ..default()
+//!             });
 //!         });
 //! }
 //! ```
@@ -55,7 +60,7 @@ use bevy_app::prelude::*;
 use bevy_asset::{AddAsset, Handle};
 use bevy_pbr::prelude::StandardMaterial;
 use bevy_reflect::TypeUuid;
-use bevy_render::{mesh::Mesh, prelude::Texture};
+use bevy_render::{mesh::Mesh, texture::Image};
 
 pub use loader::*;
 
@@ -64,7 +69,7 @@ pub use loader::*;
 pub struct EqAssetsPlugin;
 
 impl Plugin for EqAssetsPlugin {
-    fn build(&self, app: &mut AppBuilder) {
+    fn build(&self, app: &mut App) {
         app.init_asset_loader::<EqAssetsLoader>()
             .add_asset::<EqArchive>()
             .add_asset::<EqWld>()
@@ -77,7 +82,7 @@ impl Plugin for EqAssetsPlugin {
 #[derive(Debug, TypeUuid)]
 #[uuid = "716e12d8-7f53-421c-baee-f4da9053c52b"]
 pub struct EqArchive {
-    pub named_sources: HashMap<String, Handle<Texture>>,
+    pub named_sources: HashMap<String, Handle<Image>>,
     pub named_wlds: HashMap<String, Handle<EqWld>>,
 }
 
