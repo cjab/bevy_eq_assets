@@ -59,13 +59,20 @@
 
           # Configuration for the non-Rust dependencies
           buildInputs = with pkgs; [
-            pkg-config
-            openssl
+            udev
+            alsa-lib
+            vulkan-loader
+            xorg.libX11
+            xorg.libXcursor
+            xorg.libXi
+            xorg.libXrandr # To use the x11 feature
+            libxkbcommon
+            wayland # To use the wayland feature
           ];
           nativeBuildInputs = with pkgs; [
+            pkg-config
             rustc
             cargo
-            pkg-config
             nixpkgs-fmt
             rust-analyzer
             perf-tools
@@ -92,6 +99,7 @@
             {
               inherit buildInputs nativeBuildInputs;
               RUST_SRC_PATH = "${pkgs.rust.packages.stable.rustPlatform.rustLibSrc}";
+              LD_LIBRARY_PATH = nixpkgs.lib.makeLibraryPath buildInputs;
             } // buildEnvVars;
         }
       );

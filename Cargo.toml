@@ -27,3 +27,7 @@ bevy_math = "0.9.1"
 bevy_hierarchy = "0.9.1"
 anyhow = "1.0"
 image = "0.23.2"
+
+[dev-dependencies]
+bevy = "0.9.1"
+bevy_fly_camera = { git = "https://github.com/mcpar-land/bevy_fly_camera", branch = "master" }
